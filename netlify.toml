@@ -1,44 +1,28 @@
 # Netlify Configuration for RWAswift
-# Frontend deployment configuration
+# Static site deployment
 
 [build]
-  # Build command for Next.js frontend (static export)
+  # Build command
   command = "cd frontend && npm install && npm run build"
   
-  # Publish directory (Next.js static export output)
+  # Publish directory (Next.js static export)
   publish = "frontend/out"
-  
-  # Functions directory (for serverless functions if needed)
-  functions = "netlify/functions"
 
 [build.environment]
-  # Node version
+  # Node version (required for Next.js 16)
   NODE_VERSION = "20"
+  NPM_VERSION = "10"
   
-  # Next.js environment variables
-  NEXT_PUBLIC_API_URL = "https://api.rwaswift.com"
+  # Next.js settings
   NEXT_TELEMETRY_DISABLED = "1"
 
-# Development server settings
-[dev]
-  command = "cd frontend && npm run dev"
-  port = 3000
-  targetPort = 3000
-  publish = "frontend/.next"
-
-# Redirects and rewrites
-[[redirects]]
-  from = "/api/*"
-  to = "https://api.rwaswift.com/api/:splat"
-  status = 200
-  force = true
-
+# SPA fallback for client-side routing
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
 
-# Headers for security
+# Security headers
 [[headers]]
   for = "/*"
   [headers.values]
@@ -46,11 +30,10 @@
     X-Content-Type-Options = "nosniff"
     X-XSS-Protection = "1; mode=block"
     Referrer-Policy = "strict-origin-when-cross-origin"
-    Permissions-Policy = "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
 
 # Cache static assets
 [[headers]]
-  for = "/static/*"
+  for = "/_next/static/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
 
@@ -63,8 +46,3 @@
   for = "/*.css"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
-
-# Plugins
-[[plugins]]
-  package = "@netlify/plugin-nextjs"
-

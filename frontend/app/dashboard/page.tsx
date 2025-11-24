@@ -238,8 +238,8 @@ export default function Dashboard() {
   );
 }
 
-function StatCard({ icon: Icon, label, value, subtext, color }: any) {
-  const colors = {
+function StatCard({ icon: Icon, label, value, subtext, color }: { icon: React.ElementType; label: string; value: string | number; subtext?: string; color: 'blue' | 'green' | 'red' | 'purple' }) {
+  const colors: Record<string, string> = {
     blue: 'from-blue-100 to-blue-50 text-blue-600',
     green: 'from-green-100 to-green-50 text-green-600',
     red: 'from-red-100 to-red-50 text-red-600',
@@ -249,7 +249,7 @@ function StatCard({ icon: Icon, label, value, subtext, color }: any) {
   return (
     <div className="bg-white rounded-lg shadow-sm p-6">
       <div className="flex items-center justify-between mb-4">
-        <div className={`w-12 h-12 rounded-lg bg-gradient-to-br ${colors[color]} flex items-center justify-center`}>
+        <div className={`w-12 h-12 rounded-lg bg-gradient-to-br ${colors[color] || colors.blue} flex items-center justify-center`}>
           <Icon className="w-6 h-6" />
         </div>
       </div>
@@ -260,15 +260,15 @@ function StatCard({ icon: Icon, label, value, subtext, color }: any) {
   );
 }
 
-function RiskCard({ label, count, color }: any) {
-  const colors = {
+function RiskCard({ label, count, color }: { label: string; count: number; color: 'green' | 'yellow' | 'red' }) {
+  const colors: Record<string, string> = {
     green: 'bg-green-50 text-green-600 border-green-200',
     yellow: 'bg-yellow-50 text-yellow-600 border-yellow-200',
     red: 'bg-red-50 text-red-600 border-red-200',
   };
 
   return (
-    <div className={`p-4 rounded-lg border-2 ${colors[color]}`}>
+    <div className={`p-4 rounded-lg border-2 ${colors[color] || colors.green}`}>
       <p className="text-2xl font-bold">{count}</p>
       <p className="text-sm mt-1">{label}</p>
     </div>
