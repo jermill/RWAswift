@@ -32,8 +32,9 @@ describe('API Integration Tests', () => {
       const response = await request(app).get('/');
       
       expect(response.status).toBe(200);
-      expect(response.body.name).toBe('RWAswift API');
+      expect(response.body.message).toContain('RWAswift API');
       expect(response.body.version).toBeDefined();
+      expect(response.body.status).toBe('operational');
     });
   });
 
@@ -43,20 +44,23 @@ describe('API Integration Tests', () => {
       
       expect(response.status).toBe(404);
       expect(response.body.error).toBeDefined();
-      expect(response.body.error.code).toBe('NOT_FOUND');
+      expect(response.body.error.message).toContain('not found');
+      expect(response.body.error.statusCode).toBe(404);
     });
 
     test('should include requestId in error response', async () => {
       const response = await request(app).get('/api/v1/nonexistent');
       
-      expect(response.body.requestId).toBeDefined();
-      expect(typeof response.body.requestId).toBe('string');
+      expect(response.body.error.requestId).toBeDefined();
+      expect(typeof response.body.error.requestId).toBe('string');
     });
   });
 
   describe('CORS Headers', () => {
     test('should include CORS headers', async () => {
-      const response = await request(app).get('/health');
+      const response = await request(app)
+        .get('/health')
+        .set('Origin', 'http://localhost:3000');
       
       expect(response.headers['access-control-allow-origin']).toBeDefined();
     });
