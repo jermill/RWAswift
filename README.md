@@ -4,9 +4,19 @@
 
 [![GitHub Repo](https://img.shields.io/badge/GitHub-jermill%2FRWAswift-blue?logo=github)](https://github.com/jermill/RWAswift)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Supabase-blue.svg)](https://supabase.com/)
-[![Next.js](https://img.shields.io/badge/Next.js-16-black.svg)](https://nextjs.org/)
+[![CI/CD](https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-2088FF?logo=github-actions)](https://github.com/jermill/RWAswift/actions)
+[![Tests](https://img.shields.io/badge/tests-22%20passing-success.svg)](#testing)
+[![Coverage](https://img.shields.io/badge/coverage-17%25-yellow.svg)](#testing)
+
+[![Node.js](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg?logo=node.js)](https://nodejs.org/)
+[![Express](https://img.shields.io/badge/Express-4.21-lightgrey.svg?logo=express)](https://expressjs.com/)
+[![Next.js](https://img.shields.io/badge/Next.js-16-black.svg?logo=next.js)](https://nextjs.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Supabase-3ECF8E?logo=supabase)](https://supabase.com/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg?logo=typescript)](https://www.typescriptlang.org/)
+
+[![Deploy to Netlify](https://img.shields.io/badge/Deploy%20to-Netlify-00C7B7?logo=netlify)](https://app.netlify.com/)
+[![Security](https://img.shields.io/badge/security-JWT%20%2B%20RLS-red.svg?logo=security)](https://jwt.io/)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
 > **2-minute KYC verification** | **Enterprise-grade compliance** | **Production-ready API**
 
