@@ -10,11 +10,7 @@ const { triggerVerificationWebhook } = require('../services/webhookService');
 const { performFullKYC } = require('../services/mockKYCProvider');
 const { sendVerificationStarted, sendVerificationCompleted } = require('../services/emailService');
 const webhookController = require('./webhookController');
-
-// Mock database for verifications
-const mockDatabase = {
-  verifications: []
-};
+const db = require('../config/supabase');
 
 /**
  * Simulate async KYC processing
@@ -23,12 +19,14 @@ const mockDatabase = {
  */
 async function processVerificationAsync(verificationId, data) {
   // Find verification
-  const verification = mockDatabase.verifications.find(v => v.id === verificationId);
+  let verification = await db.verifications.findById(verificationId);
   if (!verification) return;
   
   // Update status to processing
-  verification.status = 'processing';
-  verification.processingStartedAt = new Date().toISOString();
+  verification = await db.verifications.update(verificationId, {
+    status: 'processing',
+    processing_started_at: new Date().toISOString()
+  });
   
   const startTime = Date.now();
   
@@ -36,27 +34,21 @@ async function processVerificationAsync(verificationId, data) {
   let kycResult;
   if (config.features.mockKycEnabled) {
     kycResult = await performFullKYC({
-      investorEmail: verification.investorEmail,
-      investorFirstName: verification.investorFirstName,
-      investorLastName: verification.investorLastName,
-      investorCountry: verification.investorCountry,
+      investorEmail: verification.investor_email,
+      investorFirstName: verification.investor_first_name,
+      investorLastName: verification.investor_last_name,
+      investorCountry: verification.investor_country,
       investorDateOfBirth: data.dateOfBirth
     });
-    
-    // Store KYC provider data
-    verification.personaInquiryId = kycResult.inquiryId;
-    verification.personaStatus = kycResult.status;
   }
   
   // Calculate risk score using risk engine
-  const recentVerifications = mockDatabase.verifications.filter(v => 
-    v.orgId === verification.orgId && v.id !== verification.id
-  );
+  const { verifications: recentVerifications } = await db.verifications.findByOrganization(verification.org_id, 100, 0);
   
   const riskAssessment = calculateRiskScore({
-    investorEmail: verification.investorEmail,
-    investorCountry: verification.investorCountry,
-    investorIpAddress: verification.investorIpAddress,
+    investorEmail: verification.investor_email,
+    investorCountry: verification.investor_country,
+    investorIpAddress: verification.investor_ip_address,
     recentVerifications
   });
   
@@ -67,19 +59,10 @@ async function processVerificationAsync(verificationId, data) {
   
   const processingTime = Date.now() - startTime;
   
-  // Update verification with risk data
-  verification.status = isApproved ? 'approved' : 'rejected';
-  verification.decision = isApproved ? 'approved' : 'rejected';
-  verification.riskScore = riskAssessment.score;
-  verification.riskLevel = riskAssessment.level;
-  verification.riskReasons = riskAssessment.factors;
-  verification.decisionMadeAt = new Date().toISOString();
-  verification.processingCompletedAt = new Date().toISOString();
-  verification.processingTimeMs = processingTime;
-  
   // Set decision reason
+  let decisionReason;
   if (isApproved) {
-    verification.decisionReason = 'All verification checks passed';
+    decisionReason = 'All verification checks passed';
   } else {
     const reasons = [];
     if (!kycPassed && kycResult) {
@@ -88,32 +71,54 @@ async function processVerificationAsync(verificationId, data) {
     if (riskAssessment.factors.length > 0) {
       reasons.push(...riskAssessment.factors);
     }
-    verification.decisionReason = reasons.length > 0 
+    decisionReason = reasons.length > 0 
       ? reasons.join('; ')
       : 'High risk indicators detected';
   }
   
-  console.log(`✅ Verification ${verificationId} completed: ${verification.decision} (${verification.riskScore}/100)`);
+  // Update verification with risk data in database
+  verification = await db.verifications.update(verificationId, {
+    status: isApproved ? 'approved' : 'rejected',
+    decision: isApproved ? 'approved' : 'rejected',
+    risk_score: riskAssessment.score,
+    risk_level: riskAssessment.level,
+    risk_reasons: riskAssessment.factors,
+    decision_made_at: new Date().toISOString(),
+    decision_reason: decisionReason,
+    processing_completed_at: new Date().toISOString(),
+    processing_time_ms: processingTime,
+    persona_inquiry_id: kycResult?.inquiryId,
+    persona_status: kycResult?.status
+  });
+  
+  console.log(`✅ Verification ${verificationId} completed: ${verification.decision} (${verification.risk_score}/100)`);
   
   // Send completion email (non-blocking)
-  sendVerificationCompleted(verification.investorEmail, verification).catch(err =>
+  sendVerificationCompleted(verification.investor_email, verification).catch(err =>
     console.error('Email send error:', err)
   );
   
   // Trigger webhook notification
   try {
+    const webhooks = await db.webhooks.findByOrganization(verification.org_id);
     await triggerVerificationWebhook(
-      verification.orgId,
+      verification.org_id,
       verification,
-      webhookController._mockDatabase.webhooks
+      webhooks
     );
-    verification.webhookDelivered = true;
-    verification.webhookDeliveredAt = new Date().toISOString();
+    
+    await db.verifications.update(verificationId, {
+      webhook_delivered: true,
+      webhook_delivered_at: new Date().toISOString(),
+      webhook_attempts: (verification.webhook_attempts || 0) + 1
+    });
   } catch (webhookError) {
     console.error('Webhook delivery error:', webhookError);
-    verification.webhookDelivered = false;
+    await db.verifications.update(verificationId, {
+      webhook_delivered: false,
+      webhook_attempts: (verification.webhook_attempts || 0) + 1
+    });
   }
-  verification.webhookAttempts += 1;
 }
 
 /**
@@ -153,36 +158,18 @@ exports.createVerification = async (req, res) => {
       });
     }
     
-    // Create verification record
-    const verification = {
-      id: crypto.randomUUID(),
-      orgId: org.id,
-      investorEmail: email.toLowerCase(),
-      investorFirstName: firstName || null,
-      investorLastName: lastName || null,
-      investorCountry: country || null,
-      investorIpAddress: req.ip || req.connection.remoteAddress,
+    // Create verification record in database
+    const verification = await db.verifications.create({
+      organization_id: org.id,
+      email: email.toLowerCase(),
+      first_name: firstName || null,
+      last_name: lastName || null,
+      country: country || null,
+      ip_address: req.ip || req.connection.remoteAddress,
       status: 'pending',
-      riskScore: null,
-      riskLevel: null,
-      riskReasons: [],
-      decision: null,
-      decisionReason: null,
-      decisionMadeAt: null,
-      decisionMadeBy: 'system',
-      processingStartedAt: null,
-      processingCompletedAt: null,
-      processingTimeMs: null,
-      webhookDelivered: false,
-      webhookAttempts: 0,
-      userAgent: req.headers['user-agent'],
-      metadata: req.body.metadata || {},
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-    
-  // Store in mock database
-    mockDatabase.verifications.push(verification);
+      user_agent: req.headers['user-agent'],
+      metadata: req.body.metadata || {}
+    });
     
     // Send verification started email (non-blocking)
     sendVerificationStarted(email, verification).catch(err => 
@@ -190,10 +177,12 @@ exports.createVerification = async (req, res) => {
     );
     
     // Start async processing
-    processVerificationAsync(verification.id, verification).catch(error => {
+    processVerificationAsync(verification.id, { dateOfBirth }).catch(async (error) => {
       console.error('Verification processing error:', error);
-      verification.status = 'failed';
-      verification.decisionReason = 'Processing error';
+      await db.verifications.update(verification.id, {
+        status: 'failed',
+        decision_reason: 'Processing error'
+      });
     });
     
     // Return immediate response
@@ -202,9 +191,9 @@ exports.createVerification = async (req, res) => {
       verification: {
         id: verification.id,
         status: verification.status,
-        investorEmail: verification.investorEmail,
+        investorEmail: verification.investor_email,
         estimatedTime: '2 minutes',
-        createdAt: verification.createdAt
+        createdAt: verification.created_at
       },
       links: {
         status: `/api/v1/verify/${verification.id}`,
@@ -234,11 +223,9 @@ exports.getVerification = async (req, res) => {
     const { id } = req.params;
     
     // Find verification
-    const verification = mockDatabase.verifications.find(
-      v => v.id === id && v.orgId === org.id
-    );
+    const verification = await db.verifications.findById(id);
     
-    if (!verification) {
+    if (!verification || verification.org_id !== org.id) {
       return res.status(404).json({
         error: {
           message: 'Verification not found',
@@ -253,29 +240,29 @@ exports.getVerification = async (req, res) => {
         id: verification.id,
         status: verification.status,
         investor: {
-          email: verification.investorEmail,
-          firstName: verification.investorFirstName,
-          lastName: verification.investorLastName,
-          country: verification.investorCountry
+          email: verification.investor_email,
+          firstName: verification.investor_first_name,
+          lastName: verification.investor_last_name,
+          country: verification.investor_country
         },
         risk: {
-          score: verification.riskScore,
-          level: verification.riskLevel,
-          reasons: verification.riskReasons
+          score: verification.risk_score,
+          level: verification.risk_level,
+          reasons: verification.risk_reasons
         },
         decision: {
           result: verification.decision,
-          reason: verification.decisionReason,
-          madeAt: verification.decisionMadeAt,
-          madeBy: verification.decisionMadeBy
+          reason: verification.decision_reason,
+          madeAt: verification.decision_made_at,
+          madeBy: verification.decision_made_by
         },
         processing: {
-          startedAt: verification.processingStartedAt,
-          completedAt: verification.processingCompletedAt,
-          timeMs: verification.processingTimeMs
+          startedAt: verification.processing_started_at,
+          completedAt: verification.processing_completed_at,
+          timeMs: verification.processing_time_ms
         },
-        createdAt: verification.createdAt,
-        updatedAt: verification.updatedAt
+        createdAt: verification.created_at,
+        updatedAt: verification.updated_at
       }
     });
     
@@ -299,56 +286,28 @@ exports.listVerifications = async (req, res) => {
   try {
     const { org } = req;
     const { 
-      status, 
       limit = 50, 
-      offset = 0,
-      email,
-      country,
-      decision
+      offset = 0
     } = req.query;
     
-    // Get org verifications
-    let verifications = mockDatabase.verifications.filter(v => v.orgId === org.id);
-    
-    // Apply filters
-    if (status) {
-      verifications = verifications.filter(v => v.status === status);
-    }
-    if (email) {
-      verifications = verifications.filter(v => 
-        v.investorEmail.toLowerCase().includes(email.toLowerCase())
-      );
-    }
-    if (country) {
-      verifications = verifications.filter(v => v.investorCountry === country);
-    }
-    if (decision) {
-      verifications = verifications.filter(v => v.decision === decision);
-    }
-    
-    // Sort by created date (newest first)
-    verifications.sort((a, b) => 
-      new Date(b.createdAt) - new Date(a.createdAt)
-    );
-    
-    // Pagination
-    const total = verifications.length;
-    verifications = verifications.slice(
-      parseInt(offset), 
-      parseInt(offset) + parseInt(limit)
+    // Get org verifications with pagination
+    const { verifications, total } = await db.verifications.findByOrganization(
+      org.id,
+      parseInt(limit),
+      parseInt(offset)
     );
     
     // Format response
     const formattedVerifications = verifications.map(v => ({
       id: v.id,
       status: v.status,
-      investorEmail: v.investorEmail,
-      investorCountry: v.investorCountry,
+      investorEmail: v.investor_email,
+      investorCountry: v.investor_country,
       decision: v.decision,
-      riskScore: v.riskScore,
-      riskLevel: v.riskLevel,
-      processingTimeMs: v.processingTimeMs,
-      createdAt: v.createdAt
+      riskScore: v.risk_score,
+      riskLevel: v.risk_level,
+      processingTimeMs: v.processing_time_ms,
+      createdAt: v.created_at
     }));
     
     res.json({
@@ -381,49 +340,37 @@ exports.getStats = async (req, res) => {
   try {
     const { org } = req;
     
-    // Get org verifications
-    const verifications = mockDatabase.verifications.filter(v => v.orgId === org.id);
+    // Get stats from database
+    const stats = await db.verifications.getStats(org.id);
     
-    // Calculate stats
-    const total = verifications.length;
-    const approved = verifications.filter(v => v.decision === 'approved').length;
-    const rejected = verifications.filter(v => v.decision === 'rejected').length;
-    const pending = verifications.filter(v => v.status === 'pending' || v.status === 'processing').length;
-    
-    // Calculate average processing time
-    const completedVerifications = verifications.filter(v => v.processingTimeMs);
+    // Get all verifications for processing time calculation
+    const { verifications } = await db.verifications.findByOrganization(org.id, 1000, 0);
+    const completedVerifications = verifications.filter(v => v.processing_time_ms);
     const avgProcessingTime = completedVerifications.length > 0
-      ? Math.round(completedVerifications.reduce((sum, v) => sum + v.processingTimeMs, 0) / completedVerifications.length)
+      ? Math.round(completedVerifications.reduce((sum, v) => sum + v.processing_time_ms, 0) / completedVerifications.length)
       : null;
     
     // Calculate approval rate
-    const decidedVerifications = approved + rejected;
+    const decidedVerifications = stats.approved + stats.rejected;
     const approvalRate = decidedVerifications > 0
-      ? Math.round((approved / decidedVerifications) * 100)
+      ? Math.round((stats.approved / decidedVerifications) * 100)
       : null;
-    
-    // Risk level distribution
-    const riskDistribution = {
-      low: verifications.filter(v => v.riskLevel === 'low').length,
-      medium: verifications.filter(v => v.riskLevel === 'medium').length,
-      high: verifications.filter(v => v.riskLevel === 'high').length
-    };
     
     res.json({
       stats: {
-        total,
-        approved,
-        rejected,
-        pending,
+        total: stats.total,
+        approved: stats.approved,
+        rejected: stats.rejected,
+        pending: stats.pending + stats.processing,
         approvalRate,
         avgProcessingTime,
-        riskDistribution
+        riskDistribution: stats.risk_distribution
       },
       usage: {
-        monthly: org.monthlyUsage || 0,
-        limit: org.monthlyLimit || 100,
-        remaining: (org.monthlyLimit || 100) - (org.monthlyUsage || 0),
-        percentage: Math.round(((org.monthlyUsage || 0) / (org.monthlyLimit || 100)) * 100)
+        monthly: org.monthly_usage || 0,
+        limit: org.monthly_limit || 100,
+        remaining: (org.monthly_limit || 100) - (org.monthly_usage || 0),
+        percentage: Math.round(((org.monthly_usage || 0) / (org.monthly_limit || 100)) * 100)
       }
     });
     
@@ -439,6 +386,4 @@ exports.getStats = async (req, res) => {
   }
 };
 
-// Export mock database for testing
-exports._mockDatabase = mockDatabase;
 

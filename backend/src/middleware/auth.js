@@ -5,27 +5,21 @@
 
 const { verifyToken } = require('../utils/crypto');
 const config = require('../config');
+const db = require('../config/supabase');
 
 /**
- * Mock database query (will be replaced with real DB)
+ * Find organization by API key
  * @param {string} apiKey - API key to look up
  * @returns {object|null} Organization object or null
  */
 async function findOrganizationByApiKey(apiKey) {
-  // TODO: Replace with real database query
-  // For now, accept test API key from seed data
-  if (apiKey === 'rwa_test_sk_1234567890abcdef') {
-    return {
-      id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
-      name: 'Test RWA Platform',
-      email: 'test@rwaplatform.com',
-      plan: 'growth',
-      monthly_limit: 1000,
-      monthly_usage: 15,
-      status: 'active'
-    };
+  try {
+    const organization = await db.organizations.findByApiKey(apiKey);
+    return organization;
+  } catch (error) {
+    console.error('Error finding organization by API key:', error);
+    return null;
   }
-  return null;
 }
 
 /**

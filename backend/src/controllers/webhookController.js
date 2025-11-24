@@ -7,11 +7,7 @@ const crypto = require('crypto');
 const config = require('../config');
 const { generateWebhookSecret } = require('../utils/crypto');
 const { testWebhook, getDeliveryLogs } = require('../services/webhookService');
-
-// Mock database for webhooks
-const mockDatabase = {
-  webhooks: []
-};
+const db = require('../config/supabase');
 
 /**
  * Create webhook
@@ -69,25 +65,15 @@ exports.createWebhook = async (req, res) => {
     // Generate webhook secret
     const secret = generateWebhookSecret();
     
-    // Create webhook
-    const webhook = {
-      id: crypto.randomUUID(),
-      orgId: org.id,
+    // Create webhook in database
+    const webhook = await db.webhooks.create({
+      organization_id: org.id,
       url,
       secret,
       events: webhookEvents,
-      isActive: true,
-      retryCount: 3,
-      timeoutSeconds: 10,
-      description: description || null,
-      metadata: req.body.metadata || {},
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      lastTriggeredAt: null
-    };
-    
-    // Store webhook
-    mockDatabase.webhooks.push(webhook);
+      is_active: true,
+      description: description || null
+    });
     
     res.status(201).json({
       message: 'Webhook created successfully',
@@ -96,11 +82,11 @@ exports.createWebhook = async (req, res) => {
         url: webhook.url,
         secret: webhook.secret, // Only shown once
         events: webhook.events,
-        isActive: webhook.isActive,
-        retryCount: webhook.retryCount,
-        timeoutSeconds: webhook.timeoutSeconds,
+        isActive: webhook.is_active,
+        retryCount: webhook.retry_count,
+        timeoutSeconds: webhook.timeout_seconds,
         description: webhook.description,
-        createdAt: webhook.createdAt
+        createdAt: webhook.created_at
       },
       important: [
         'Save the webhook secret securely',
@@ -129,20 +115,20 @@ exports.listWebhooks = async (req, res) => {
   try {
     const { org } = req;
     
-    // Get org webhooks
-    const webhooks = mockDatabase.webhooks.filter(w => w.orgId === org.id);
+    // Get org webhooks from database
+    const webhooks = await db.webhooks.findByOrganization(org.id);
     
     // Format response (hide secrets)
     const formattedWebhooks = webhooks.map(w => ({
       id: w.id,
       url: w.url,
       events: w.events,
-      isActive: w.isActive,
-      retryCount: w.retryCount,
-      timeoutSeconds: w.timeoutSeconds,
+      isActive: w.is_active,
+      retryCount: w.retry_count,
+      timeoutSeconds: w.timeout_seconds,
       description: w.description,
-      lastTriggeredAt: w.lastTriggeredAt,
-      createdAt: w.createdAt
+      lastTriggeredAt: w.last_triggered_at,
+      createdAt: w.created_at
     }));
     
     res.json({
@@ -172,9 +158,7 @@ exports.getWebhook = async (req, res) => {
     const { id } = req.params;
     
     // Find webhook
-    const webhook = mockDatabase.webhooks.find(
-      w => w.id === id && w.orgId === org.id
-    );
+    const webhook = await db.webhooks.findById(id, org.id);
     
     if (!webhook) {
       return res.status(404).json({
@@ -190,13 +174,13 @@ exports.getWebhook = async (req, res) => {
         id: webhook.id,
         url: webhook.url,
         events: webhook.events,
-        isActive: webhook.isActive,
-        retryCount: webhook.retryCount,
-        timeoutSeconds: webhook.timeoutSeconds,
+        isActive: webhook.is_active,
+        retryCount: webhook.retry_count,
+        timeoutSeconds: webhook.timeout_seconds,
         description: webhook.description,
-        lastTriggeredAt: webhook.lastTriggeredAt,
-        createdAt: webhook.createdAt,
-        updatedAt: webhook.updatedAt
+        lastTriggeredAt: webhook.last_triggered_at,
+        createdAt: webhook.created_at,
+        updatedAt: webhook.updated_at
       }
     });
     
@@ -222,10 +206,15 @@ exports.updateWebhook = async (req, res) => {
     const { id } = req.params;
     const { url, events, isActive, description } = req.body;
     
-    // Find webhook
-    const webhook = mockDatabase.webhooks.find(
-      w => w.id === id && w.orgId === org.id
-    );
+    // Prepare update data
+    const updateData = {};
+    if (url !== undefined) updateData.url = url;
+    if (events !== undefined) updateData.events = events;
+    if (isActive !== undefined) updateData.is_active = isActive;
+    if (description !== undefined) updateData.description = description;
+    
+    // Update webhook in database
+    const webhook = await db.webhooks.update(id, org.id, updateData);
     
     if (!webhook) {
       return res.status(404).json({
@@ -236,23 +225,15 @@ exports.updateWebhook = async (req, res) => {
       });
     }
     
-    // Update fields
-    if (url !== undefined) webhook.url = url;
-    if (events !== undefined) webhook.events = events;
-    if (isActive !== undefined) webhook.isActive = isActive;
-    if (description !== undefined) webhook.description = description;
-    
-    webhook.updatedAt = new Date().toISOString();
-    
     res.json({
       message: 'Webhook updated successfully',
       webhook: {
         id: webhook.id,
         url: webhook.url,
         events: webhook.events,
-        isActive: webhook.isActive,
+        isActive: webhook.is_active,
         description: webhook.description,
-        updatedAt: webhook.updatedAt
+        updatedAt: webhook.updated_at
       }
     });
     
@@ -277,12 +258,10 @@ exports.deleteWebhook = async (req, res) => {
     const { org } = req;
     const { id } = req.params;
     
-    // Find webhook index
-    const index = mockDatabase.webhooks.findIndex(
-      w => w.id === id && w.orgId === org.id
-    );
+    // Delete webhook from database
+    const deleted = await db.webhooks.delete(id, org.id);
     
-    if (index === -1) {
+    if (!deleted) {
       return res.status(404).json({
         error: {
           message: 'Webhook not found',
@@ -290,9 +269,6 @@ exports.deleteWebhook = async (req, res) => {
         }
       });
     }
-    
-    // Remove webhook
-    mockDatabase.webhooks.splice(index, 1);
     
     res.json({
       message: 'Webhook deleted successfully'
@@ -320,9 +296,7 @@ exports.testWebhookDelivery = async (req, res) => {
     const { id } = req.params;
     
     // Find webhook
-    const webhook = mockDatabase.webhooks.find(
-      w => w.id === id && w.orgId === org.id
-    );
+    const webhook = await db.webhooks.findById(id, org.id);
     
     if (!webhook) {
       return res.status(404).json({
@@ -412,6 +386,4 @@ exports.getDeliveries = async (req, res) => {
   }
 };
 
-// Export mock database for integration with webhook service
-exports._mockDatabase = mockDatabase;
 

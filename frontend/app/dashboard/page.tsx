@@ -275,3 +275,4 @@ function RiskCard({ label, count, color }: any) {
   );
 }
 
+

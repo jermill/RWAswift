@@ -61,9 +61,8 @@ async function hashApiSecret(secret) {
  * @returns {string} API key prefix
  */
 function getApiKeyPrefix(apiKey) {
-  // Extract prefix like 'rwa_test' from 'rwa_test_sk_1234...'
-  const parts = apiKey.split('_');
-  return parts.slice(0, 2).join('_');
+  // Return first 10 characters of API key as prefix
+  return apiKey.substring(0, 10);
 }
 
 /**

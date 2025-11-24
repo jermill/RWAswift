@@ -16,11 +16,7 @@ const {
 } = require('../utils/crypto');
 const config = require('../config');
 const { sendWelcomeEmail, sendApiKeyRotated } = require('../services/emailService');
-
-// Mock database (will be replaced with real DB)
-const mockDatabase = {
-  organizations: []
-};
+const db = require('../config/supabase');
 
 /**
  * Register new organization
@@ -62,8 +58,7 @@ exports.register = async (req, res) => {
     }
     
     // Check if organization already exists
-    // TODO: Replace with database query
-    const existingOrg = mockDatabase.organizations.find(org => org.email === email);
+    const existingOrg = await db.organizations.findByEmail(email.toLowerCase());
     if (existingOrg) {
       return res.status(409).json({
         error: {
@@ -82,26 +77,18 @@ exports.register = async (req, res) => {
     // Hash password
     const passwordHash = await hashPassword(password);
     
-    // Create organization
-    const organization = {
-      id: require('crypto').randomUUID(),
+    // Create organization in database
+    const organization = await db.organizations.create({
       name,
       email: email.toLowerCase(),
       website,
-      passwordHash,
-      apiKey,
-      apiKeyPrefix,
-      apiSecretHash,
+      password_hash: passwordHash,
+      api_key: apiKey,
+      api_key_prefix: apiKeyPrefix,
+      api_secret_hash: apiSecretHash,
       plan: 'starter',
-      monthlyLimit: 100,
-      monthlyUsage: 0,
-      status: 'active',
-      isVerified: false,
-      createdAt: new Date().toISOString()
-    };
-    
-    // TODO: Save to database
-    mockDatabase.organizations.push(organization);
+      monthly_limit: 100
+    });
     
     // Send welcome email (non-blocking)
     sendWelcomeEmail(email, organization, apiKey).catch(err =>
@@ -176,10 +163,7 @@ exports.login = async (req, res) => {
     }
     
     // Find organization
-    // TODO: Replace with database query
-    const organization = mockDatabase.organizations.find(
-      org => org.email === email.toLowerCase()
-    );
+    const organization = await db.organizations.findByEmail(email.toLowerCase());
     
     if (!organization) {
       return res.status(401).json({
@@ -191,7 +175,7 @@ exports.login = async (req, res) => {
     }
     
     // Verify password
-    const isValidPassword = await comparePassword(password, organization.passwordHash);
+    const isValidPassword = await comparePassword(password, organization.password_hash);
     if (!isValidPassword) {
       return res.status(401).json({
         error: {
@@ -232,7 +216,7 @@ exports.login = async (req, res) => {
         name: organization.name,
         email: organization.email,
         plan: organization.plan,
-        apiKeyPrefix: organization.apiKeyPrefix
+        apiKeyPrefix: organization.api_key_prefix
       },
       tokens: {
         accessToken,
@@ -284,10 +268,7 @@ exports.refresh = async (req, res) => {
     }
     
     // Find organization
-    // TODO: Replace with database query
-    const organization = mockDatabase.organizations.find(
-      org => org.id === decoded.orgId
-    );
+    const organization = await db.organizations.findById(decoded.orgId);
     
     if (!organization) {
       return res.status(401).json({
@@ -351,10 +332,7 @@ exports.getMe = async (req, res) => {
     const { org } = req;
     
     // Get full organization details
-    // TODO: Replace with database query
-    const organization = mockDatabase.organizations.find(
-      o => o.id === org.id
-    );
+    const organization = await db.organizations.findById(org.id);
     
     if (!organization) {
       return res.status(404).json({
@@ -373,14 +351,14 @@ exports.getMe = async (req, res) => {
         website: organization.website,
         plan: organization.plan,
         status: organization.status,
-        isVerified: organization.isVerified,
-        apiKeyPrefix: organization.apiKeyPrefix,
+        isVerified: organization.is_verified,
+        apiKeyPrefix: organization.api_key_prefix,
         usage: {
-          monthly: organization.monthlyUsage,
-          limit: organization.monthlyLimit,
-          percentage: Math.round((organization.monthlyUsage / organization.monthlyLimit) * 100)
+          monthly: organization.monthly_usage,
+          limit: organization.monthly_limit,
+          percentage: Math.round((organization.monthly_usage / organization.monthly_limit) * 100)
         },
-        createdAt: organization.createdAt
+        createdAt: organization.created_at
       }
     });
     
@@ -410,13 +388,14 @@ exports.rotateApiKey = async (req, res) => {
     const newApiSecretHash = await hashApiSecret(newApiSecret);
     const newApiKeyPrefix = getApiKeyPrefix(newApiKey);
     
-    // TODO: Update database with new credentials
-    const organization = mockDatabase.organizations.find(o => o.id === org.id);
+    // Update database with new credentials
+    const organization = await db.organizations.updateApiKey(
+      org.id,
+      newApiKey,
+      newApiSecretHash
+    );
+    
     if (organization) {
-      organization.apiKey = newApiKey;
-      organization.apiKeyPrefix = newApiKeyPrefix;
-      organization.apiSecretHash = newApiSecretHash;
-      
       // Send rotation notification email (non-blocking)
       sendApiKeyRotated(organization.email, newApiKeyPrefix).catch(err =>
         console.error('API key rotation email error:', err)
