@@ -1,10 +1,10 @@
 -- ===================================
--- Quick RLS Enable Script
+-- Quick RLS Enable Script (Safe Version)
 -- Copy and paste this into Supabase SQL Editor
 -- https://supabase.com/dashboard/project/smampnuruqkuyjovwujd/sql/new
 -- ===================================
 
--- STEP 1: Enable RLS on all tables
+-- STEP 1: Enable RLS on all tables (safe, won't error if already enabled)
 ALTER TABLE organizations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE verifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
@@ -13,7 +13,17 @@ ALTER TABLE webhook_deliveries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE api_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE compliance_rules ENABLE ROW LEVEL SECURITY;
 
--- STEP 2: Create policies (allows service_role full access)
+-- STEP 2: Drop existing policies if they exist (safe)
+DROP POLICY IF EXISTS "Service has full access to organizations" ON organizations;
+DROP POLICY IF EXISTS "Service has full access to verifications" ON verifications;
+DROP POLICY IF EXISTS "Service has full access to documents" ON documents;
+DROP POLICY IF EXISTS "Service has full access to webhooks" ON webhooks;
+DROP POLICY IF EXISTS "Service has full access to webhook_deliveries" ON webhook_deliveries;
+DROP POLICY IF EXISTS "Service has full access to api_logs" ON api_logs;
+DROP POLICY IF EXISTS "Everyone can read compliance_rules" ON compliance_rules;
+DROP POLICY IF EXISTS "Service can modify compliance_rules" ON compliance_rules;
+
+-- STEP 3: Create policies (allows service_role full access)
 CREATE POLICY "Service has full access to organizations"
 ON organizations FOR ALL TO authenticated, anon USING (true) WITH CHECK (true);
 
