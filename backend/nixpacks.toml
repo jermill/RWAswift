@@ -1,0 +1,7 @@
+# Nixpacks configuration for Railway
+[phases.build]
+cmds = ["echo 'No build step needed'"]
+
+[start]
+cmd = "node server.js"
+
