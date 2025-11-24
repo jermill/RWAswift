@@ -10,7 +10,6 @@ require('dotenv').config();
  */
 const requiredEnvVars = [
   'NODE_ENV',
-  'PORT',
   'JWT_SECRET',
   'JWT_REFRESH_SECRET'
 ];
